@@ -1,0 +1,8 @@
+version: 1
+
+server:
+  type: mcp
+  transport: streamable-http
+
+build:
+  dockerfile: Dockerfile
