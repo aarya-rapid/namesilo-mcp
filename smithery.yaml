@@ -1,14 +1,12 @@
-version: 1
+runtime: "container"
 
-server:
-  type: mcp
-  transport: streamable-http
+startCommand:
+  type: "http"
+  configSchema:
+    type: "object"
+    properties: {}
+  exampleConfig: {}
 
-runtime:
-  container:
-    command:
-      - uv
-      - run
-      - python
-      - -m
-      - src.server
+build:
+  dockerfile: "Dockerfile"
+  dockerBuildPath: "."
