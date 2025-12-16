@@ -4,5 +4,11 @@ server:
   type: mcp
   transport: streamable-http
 
-build:
-  dockerfile: Dockerfile
+runtime:
+  container:
+    command:
+      - uv
+      - run
+      - python
+      - -m
+      - src.server
