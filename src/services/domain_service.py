@@ -1,6 +1,8 @@
 from __future__ import annotations
 import re
 from typing import List, Optional
+import asyncio
+import time
 
 from ..services.namesilo_client import NameSiloClient
 from ..constants.schema import AvailabilityOutput, PricingOutput
@@ -221,4 +223,48 @@ class DomainService:
             "feasible": feasible,
             "min_possible_total": min_possible_total,
             "selected_domains": selected,
+        }
+    
+    async def probe_concurrency_level(
+        self,
+        concurrency: int,
+        domains: list[str],
+    ) -> dict:
+        async def _probe(domain: str) -> dict:
+            start = time.perf_counter()
+            try:
+                await self._client.check_availability(domain)
+                latency_ms = (time.perf_counter() - start) * 1000
+                return {
+                    "ok": True,
+                    "latency_ms": latency_ms,
+                }
+            except Exception as e:
+                latency_ms = (time.perf_counter() - start) * 1000
+                return {
+                    "ok": False,
+                    "latency_ms": latency_ms,
+                    "error": str(e),
+                }
+
+        tasks = []
+        for i in range(concurrency):
+            domain = domains[i % len(domains)]
+            tasks.append(_probe(domain))
+
+        results = await asyncio.gather(*tasks)
+
+        successes = [r for r in results if r["ok"]]
+        failures = [r for r in results if not r["ok"]]
+
+        avg_latency = (
+            sum(r["latency_ms"] for r in successes) / len(successes)
+            if successes else None
+        )
+
+        return {
+            "concurrency": concurrency,
+            "success_rate": len(successes) / len(results),
+            "avg_latency_ms": avg_latency,
+            "failures": failures,
         }
