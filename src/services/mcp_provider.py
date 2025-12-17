@@ -12,6 +12,40 @@ _service = DomainService()
 
 
 @mcp.tool()
+async def search_domains(
+    query: str,
+    tlds: List[str] = [],
+    max_results: int = 50,
+) -> dict:
+    """
+    Search NameSilo for domains based on a query.
+    """
+    return await _service.search_domains(
+        query=query,
+        tlds=tlds or None,
+        max_results=max_results,
+    )
+
+
+@mcp.tool()
+async def search_domains_under_budget(
+    query: str,
+    budget: float,
+    count: int,
+    tlds: List[str] = [],
+) -> dict:
+    """
+    Search domains and select domains under a given budget.
+    """
+    return await _service.search_domains_under_budget(
+        query=query,
+        budget=budget,
+        count=count,
+        tlds=tlds or None,
+    )
+
+
+@mcp.tool()
 async def check_domain_availability(domain: str) -> dict:
     """
     Raw NameSilo availability response for a domain.

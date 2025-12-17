@@ -22,7 +22,8 @@ class NameSiloClient:
         async with httpx.AsyncClient(timeout=20) as client:
             resp = await client.get(f"{self.base_url}{endpoint}", params=q)
             resp.raise_for_status()
-            return resp.text
+            # return resp.text
+            return resp.json()
 
     async def check_availability(self, domain: str) -> dict:
         data = await self._request(
@@ -32,28 +33,20 @@ class NameSiloClient:
 
         return data
 
-    async def check_availability_bulk(self, domains: List[str]) -> dict:
-        """
-        Check availability for multiple domains (NameSilo supports up to 200).
-        Returns raw JSON response.
-        """
+    async def check_availability_bulk(self, domains: list[str]) -> dict:
         if not domains:
-            return {
-                "error": "no_domains_provided",
-                "domains": [],
-            }
+            return {}
 
         if len(domains) > 200:
-            raise ValueError("NameSilo API supports a maximum of 200 domains per request")
+            raise ValueError("Maximum 200 domains allowed")
 
         domain_list = ",".join(domains)
 
-        data = await self._request(
+        return await self._request(
             "checkRegisterAvailability",
             {"domains": domain_list},
         )
 
-        return data
 
 
 
