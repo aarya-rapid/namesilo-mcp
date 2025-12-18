@@ -21,8 +21,17 @@ class NameSiloSettings:
     def validate(self) -> None:
         if not self.api_key:
             raise RuntimeError("NAMESILO_API_KEY is not set")
+        
+@dataclass
+class RetrySettings:
+    max_total_wait: float = 30.0
+    initial_backoff: float = 5.0
+    max_attempts: int = 6
+    jitter_min: float = 0.0
+    jitter_max: float = 2.0
 
 
 server_settings = ServerSettings()
 namesilo_settings = NameSiloSettings()
 namesilo_settings.validate()
+retry_settings = RetrySettings()
