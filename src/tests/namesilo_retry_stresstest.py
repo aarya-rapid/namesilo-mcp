@@ -14,22 +14,22 @@ if not API_KEY:
 BASE_URL = "https://www.namesilo.com/api/checkRegisterAvailability"
 
 # Domains are just tokens for concurrency
-DOMAINS = [
-    f"rapidinnovationtest{i}.com" for i in range(1, 21)
-]
+DOMAINS = [f"rapidinnovationtest{i}.com" for i in range(1, 101)]
 
-MAX_ATTEMPTS = 6
+# Retry policy (tuned from experiments)
+MAX_TOTAL_WAIT = 30.0       # seconds
+INITIAL_BACKOFF = 5.0       # seconds
+MAX_ATTEMPTS = 6            # hard safety cap
+JITTER_RANGE = (0.0, 2.0)   # seconds
 
-# -------------------------------
-# Retry-aware API call
-# -------------------------------
+
+# ----------------------------------------
+# Retry-aware NameSilo API call
+# ----------------------------------------
 
 async def call_namesilo_with_retry(
     client: httpx.AsyncClient,
     domain: str,
-    *,
-    max_total_wait: float = 30.0,
-    initial_backoff: float = 5.0,
 ) -> dict:
     params = {
         "version": 1,
@@ -40,48 +40,70 @@ async def call_namesilo_with_retry(
 
     start_time = time.perf_counter()
     attempt = 0
-    backoff = initial_backoff
+    backoff = INITIAL_BACKOFF
 
     while True:
         attempt += 1
+        elapsed = time.perf_counter() - start_time
+
+        # Enforce total timeout BEFORE attempting again
+        if elapsed >= MAX_TOTAL_WAIT:
+            return {
+                "domain": domain,
+                "ok": False,
+                "attempts": attempt - 1,
+                "elapsed_sec": round(elapsed, 2),
+                "error": "MAX_TOTAL_WAIT_EXCEEDED",
+            }
+
+        # Enforce max attempts
+        if attempt > MAX_ATTEMPTS:
+            return {
+                "domain": domain,
+                "ok": False,
+                "attempts": attempt - 1,
+                "elapsed_sec": round(elapsed, 2),
+                "error": "MAX_ATTEMPTS_EXCEEDED",
+            }
+
         try:
             r = await client.get(BASE_URL, params=params, timeout=10)
 
             content_type = r.headers.get("content-type", "").lower()
             body = r.text.strip()
 
-            if r.status_code == 200 and "json" in content_type and body:
-                return {
-                    "domain": domain,
-                    "ok": True,
-                    "attempts": attempt,
-                    "elapsed_sec": round(time.perf_counter() - start_time, 2),
-                }
-
-            raise RuntimeError(f"status={r.status_code}, non-json")
-
-        except Exception as e:
             elapsed = time.perf_counter() - start_time
 
-            # if elapsed >= max_total_wait:
-            if attempt >= MAX_ATTEMPTS:
+            # Enforce timeout EVEN IF SUCCESS
+            if elapsed >= MAX_TOTAL_WAIT:
                 return {
                     "domain": domain,
                     "ok": False,
                     "attempts": attempt,
                     "elapsed_sec": round(elapsed, 2),
-                    "error": str(e),
+                    "error": "TIMEOUT_EXCEEDED_BEFORE_SUCCESS",
                 }
 
-            # Linear backoff + small jitter
-            jitter = random.uniform(0, 2.0)
+            if r.status_code == 200 and "json" in content_type and body:
+                return {
+                    "domain": domain,
+                    "ok": True,
+                    "attempts": attempt,
+                    "elapsed_sec": round(elapsed, 2),
+                }
+
+            raise RuntimeError(f"status={r.status_code}, non-json")
+
+        except Exception:
+            # Retry with linear backoff + jitter
+            jitter = random.uniform(*JITTER_RANGE)
             await asyncio.sleep(backoff + jitter)
             backoff += 1.0
 
 
-# -------------------------------
+# ----------------------------------------
 # Concurrency burst
-# -------------------------------
+# ----------------------------------------
 
 async def burst(round_no: int, concurrency: int):
     async with httpx.AsyncClient() as client:
@@ -89,34 +111,32 @@ async def burst(round_no: int, concurrency: int):
 
         for i in range(concurrency):
             domain = DOMAINS[i % len(DOMAINS)]
-            tasks.append(
-                call_namesilo_with_retry(client, domain)
-            )
+            tasks.append(call_namesilo_with_retry(client, domain))
 
         results = await asyncio.gather(*tasks)
 
     print(f"\n=== ROUND {round_no} | concurrency={concurrency} ===")
 
-    successes = 0
+    success = 0
     for r in results:
         print(r)
         if r["ok"]:
-            successes += 1
+            success += 1
 
     print(
-        f"Summary: {successes}/{len(results)} succeeded "
-        f"(with retries where needed)"
+        f"Summary: {success}/{len(results)} succeeded "
+        f"(bounded retries, strict timeout)"
     )
 
 
-# -------------------------------
+# ----------------------------------------
 # Main runner
-# -------------------------------
+# ----------------------------------------
 
-async def main(
-    rounds: int = 1,
-    concurrency: int = 50,
-):
+async def main():
+    rounds = 1
+    concurrency = 50   # adjust as needed
+
     for i in range(1, rounds + 1):
         await burst(i, concurrency)
         await asyncio.sleep(2)
